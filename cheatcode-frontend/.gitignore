@@ -3,5 +3,7 @@ cheatcode-frontend/node_modules/
 cheatcode-backend/node_modules/
 .next/
 .env
+.env.local
 dist/
 build/
+.env.*

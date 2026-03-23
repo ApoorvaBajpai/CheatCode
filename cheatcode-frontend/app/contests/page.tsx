@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getContests, deleteContest } from '@/lib/api';
 import { Plus, Clock, FileText, Trash2, Play } from 'lucide-react';
 
@@ -13,6 +14,7 @@ interface ContestSummary {
 }
 
 export default function ContestsDashboard() {
+    const router = useRouter();
     const [contests, setContests] = useState<ContestSummary[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -20,12 +22,17 @@ export default function ContestsDashboard() {
         try {
             const res = await getContests();
             setContests(res.data);
+        } catch (err: any) {
+            if (err.response?.status === 401) router.push('/login');
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { fetchAll(); }, []);
+    useEffect(() => {
+        if (!localStorage.getItem('token')) { router.push('/login'); return; }
+        fetchAll();
+    }, []);
 
     const handleDelete = async (id: string) => {
         if (!confirm('Delete this contest?')) return;

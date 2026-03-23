@@ -12,9 +12,10 @@ const questionSchema = new mongoose.Schema({
 }, { _id: true });
 
 const contestSchema = new mongoose.Schema({
-    title: { type: String, required: true },   // Contest name
-    duration: { type: Number, required: true },   // Duration in minutes
+    title: { type: String, required: true },
+    duration: { type: Number, required: true },
     questions: [questionSchema],
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
 module.exports = mongoose.model('Contest', contestSchema);

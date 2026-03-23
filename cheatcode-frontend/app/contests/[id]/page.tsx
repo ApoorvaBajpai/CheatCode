@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { getContest, runCode, saveSubmission } from '@/lib/api';
 import { Clock, Play, Send, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -24,18 +25,17 @@ export default function ContestPage() {
     const [started, setStarted] = useState(false);
     const [currentQ, setCurrentQ] = useState(0);
     const [timeLeft, setTimeLeft] = useState(0);
-    const timeSpentRef = useRef(0); // tracks elapsed seconds
+    const timeSpentRef = useRef(0);
 
-    // Per-question state
     const [lang, setLang] = useState<Record<number, string>>({});
     const [codes, setCodes] = useState<Record<number, string>>({});
     const [output, setOutput] = useState<Record<number, { status: string; stdout: string; stderr: string } | null>>({});
     const [running, setRunning] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+    const [authError, setAuthError] = useState(false);
 
     useEffect(() => { getContest(id).then(r => setContest(r.data)); }, [id]);
 
-    // countdown + elapsed tracker
     useEffect(() => {
         if (!started || timeLeft <= 0) return;
         const t = setInterval(() => {
@@ -51,25 +51,38 @@ export default function ContestPage() {
         setStarted(true);
     };
 
-    const getLang = (i: number) => lang[i] || 'python';
+    const getLang = (i: number) => lang[i] || 'cpp';
     const getCode = (i: number) => codes[i] || STARTER[getLang(i)];
 
     const handleRun = async () => {
         if (!contest) return;
         const q = contest.questions[currentQ];
-        const stdin = q.sampleTestCases[0]?.input || '';
+        const tc = q.sampleTestCases[0];
+        if (!tc) return;
         setRunning(true);
         setOutput(o => ({ ...o, [currentQ]: null }));
         try {
-            const res = await runCode({ code: getCode(currentQ), language: getLang(currentQ), stdin });
-            setOutput(o => ({ ...o, [currentQ]: res.data }));
+            const res = await runCode({ code: getCode(currentQ), language: getLang(currentQ), stdin: tc.input });
+            const actualOut = (res.data.stdout || '').trim();
+            const expectedOut = tc.expectedOutput.trim();
+            const passed = actualOut === expectedOut;
+            setOutput(o => ({
+                ...o,
+                [currentQ]: {
+                    status: res.data.stderr ? 'Error' : (passed ? 'Accepted' : 'Wrong Answer'),
+                    stdout: res.data.stdout || '',
+                    stderr: res.data.stderr || '',
+                },
+            }));
         } catch {
-            setOutput(o => ({ ...o, [currentQ]: { status: 'Error', stdout: '', stderr: 'Run failed. Check if backend is running.' } }));
+            setOutput(o => ({ ...o, [currentQ]: { status: 'Error', stdout: '', stderr: 'Run failed. Is the backend running?' } }));
         } finally { setRunning(false); }
     };
 
     const handleSubmit = async () => {
         if (!contest) return;
+        const token = localStorage.getItem('token');
+        if (!token) { setAuthError(true); return; }
         setSubmitting(true);
         const answers = contest.questions.map((q, i) => ({
             questionId: q._id,
@@ -80,15 +93,10 @@ export default function ContestPage() {
             output: output[i]?.stdout || '',
         }));
         try {
-            await saveSubmission({
-                contestId: contest._id,
-                contestTitle: contest.title,
-                timeTaken: timeSpentRef.current,
-                answers,
-            });
+            await saveSubmission({ contestId: contest._id, contestTitle: contest.title, timeTaken: timeSpentRef.current, answers });
             router.push('/submissions');
         } catch {
-            alert('Submit failed. Are you logged in?');
+            setAuthError(true);
         } finally { setSubmitting(false); }
     };
 
@@ -96,7 +104,22 @@ export default function ContestPage() {
 
     if (!contest) return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-white/30 text-sm">Loading…</div>;
 
-    // ── Pre-start screen ─────────────────────────────────────────────────────
+    // ── Auth error modal ──────────────────────────────────────────────────────
+    if (authError) return (
+        <main className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+            <div className="bg-[#111] border border-white/10 rounded-2xl p-8 max-w-sm w-full text-center">
+                <p className="text-white text-lg font-bold mb-2">Not logged in</p>
+                <p className="text-white/40 text-sm mb-6">You need an account to submit. Please log in or sign up.</p>
+                <div className="flex gap-3 justify-center">
+                    <Link href="/login" className="px-5 py-2.5 bg-violet-600 hover:bg-violet-500 rounded-lg text-sm font-semibold text-white transition-colors">Log In</Link>
+                    <Link href="/signup" className="px-5 py-2.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-sm font-semibold text-white transition-colors">Sign Up</Link>
+                </div>
+                <button onClick={() => setAuthError(false)} className="mt-4 text-xs text-white/30 hover:text-white transition-colors">← Back to contest</button>
+            </div>
+        </main>
+    );
+
+    // ── Pre-start screen ──────────────────────────────────────────────────────
     if (!started) return (
         <main className="min-h-screen bg-[#0a0a0a] text-white flex flex-col items-center justify-center">
             <h1 className="text-3xl font-bold mb-3">{contest.title}</h1>
@@ -109,7 +132,7 @@ export default function ContestPage() {
                 Start Contest →
             </button>
             <button onClick={() => router.push('/contests')} className="mt-4 text-sm text-white/30 hover:text-white transition-colors">
-                ← Back
+                ← Back to Contests
             </button>
         </main>
     );
@@ -117,12 +140,16 @@ export default function ContestPage() {
     const q = contest.questions[currentQ];
     const out = output[currentQ];
 
-    // ── Active contest ───────────────────────────────────────────────────────
+    // ── Active contest ────────────────────────────────────────────────────────
     return (
         <main className="h-screen bg-[#0a0a0a] text-white flex flex-col overflow-hidden">
-            {/* Top bar */}
             <header className="h-11 border-b border-white/5 flex items-center justify-between px-4 flex-shrink-0 bg-black/50">
-                <span className="text-sm font-medium text-white/60 truncate">{contest.title}</span>
+                <div className="flex items-center gap-3">
+                    <button onClick={() => router.push('/contests')} className="text-white/30 hover:text-white transition-colors">
+                        <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-sm font-medium text-white/60 truncate">{contest.title}</span>
+                </div>
                 <div className="flex items-center gap-3">
                     <span className={`font-mono text-sm font-bold ${timeLeft < 300 ? 'text-red-400' : 'text-white/50'}`}>
                         <Clock className="inline w-3.5 h-3.5 mr-1" />{fmt(timeLeft)}
@@ -184,15 +211,14 @@ export default function ContestPage() {
                         <select
                             value={getLang(currentQ)}
                             onChange={e => setLang(l => ({ ...l, [currentQ]: e.target.value }))}
-                            className="bg-white/5 border border-white/10 text-white/70 text-xs rounded px-2 py-1 outline-none"
+                            className="bg-[#1e1e2e] border border-white/20 text-white text-xs rounded px-2 py-1 outline-none cursor-pointer"
                         >
-                            <option value="python">Python</option>
-                            <option value="javascript">JavaScript</option>
-                            <option value="cpp">C++</option>
+                            <option value="cpp" style={{ background: '#1e1e2e', color: '#fff' }}>C++</option>
+                            <option value="python" style={{ background: '#1e1e2e', color: '#fff' }}>Python</option>
+                            <option value="javascript" style={{ background: '#1e1e2e', color: '#fff' }}>JavaScript</option>
                         </select>
 
                         <div className="flex gap-2">
-                            {/* Prev / Next */}
                             <button onClick={() => setCurrentQ(i => Math.max(0, i - 1))} disabled={currentQ === 0}
                                 className="p-1.5 rounded text-white/30 hover:text-white disabled:opacity-20 transition-colors">
                                 <ChevronLeft className="w-4 h-4" />

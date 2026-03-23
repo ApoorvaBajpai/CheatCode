@@ -1,48 +1,26 @@
 const express = require('express');
 const router = express.Router();
 const Contest = require('../models/Contest');
+const authMiddleware = require('../middleware/auth');
 
-/**
- * POST /api/contests
- * Create a new contest.
- *
- * Accepts JSON body:
- * {
- *   "title":    "Sprint 1",
- *   "duration": 90,
- *   "questions": [
- *     {
- *       "title": "Two Sum",
- *       "description": "Given an array...",
- *       "constraints": ["2 <= nums.length <= 1000"],
- *       "sampleTestCases": [{ "input": "...", "expectedOutput": "..." }]
- *     }
- *   ]
- * }
- */
-router.post('/', async (req, res) => {
+// POST /api/contests  — create contest (auth required, sets createdBy)
+router.post('/', authMiddleware, async (req, res) => {
     try {
         const { title, duration, questions } = req.body;
-
-        if (!title || !duration) {
-            return res.status(400).json({ message: 'title and duration are required' });
-        }
-
-        const contest = await Contest.create({ title, duration, questions: questions || [] });
+        if (!title || !duration) return res.status(400).json({ message: 'title and duration are required' });
+        const contest = await Contest.create({ title, duration, questions: questions || [], createdBy: req.user.id });
         res.status(201).json(contest);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
-// GET /api/contests  –  list all contests (summary only, no question bodies)
-router.get('/', async (req, res) => {
+// GET /api/contests  — list only this user's contests
+router.get('/', authMiddleware, async (req, res) => {
     try {
-        const contests = await Contest.find()
+        const contests = await Contest.find({ createdBy: req.user.id })
             .select('title duration questions createdAt')
             .sort({ createdAt: -1 });
-
-        // Return count instead of full question objects in list view
         const data = contests.map(c => ({
             _id: c._id,
             title: c.title,
@@ -50,17 +28,16 @@ router.get('/', async (req, res) => {
             questionCount: c.questions.length,
             createdAt: c.createdAt,
         }));
-
         res.json(data);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
 });
 
-// GET /api/contests/:id  –  get full contest with all questions
-router.get('/:id', async (req, res) => {
+// GET /api/contests/:id
+router.get('/:id', authMiddleware, async (req, res) => {
     try {
-        const contest = await Contest.findById(req.params.id);
+        const contest = await Contest.findOne({ _id: req.params.id, createdBy: req.user.id });
         if (!contest) return res.status(404).json({ message: 'Contest not found' });
         res.json(contest);
     } catch (err) {
@@ -68,10 +45,10 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// DELETE /api/contests/:id  –  delete a contest
-router.delete('/:id', async (req, res) => {
+// DELETE /api/contests/:id
+router.delete('/:id', authMiddleware, async (req, res) => {
     try {
-        await Contest.findByIdAndDelete(req.params.id);
+        await Contest.findOneAndDelete({ _id: req.params.id, createdBy: req.user.id });
         res.json({ message: 'Deleted' });
     } catch (err) {
         res.status(500).json({ message: err.message });

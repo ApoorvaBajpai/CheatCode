@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { getContests, deleteContest } from '@/lib/api';
 import { Plus, Clock, FileText, Trash2, Play } from 'lucide-react';
 
@@ -13,6 +14,7 @@ interface ContestSummary {
 }
 
 export default function ContestsDashboard() {
+    const router = useRouter();
     const [contests, setContests] = useState<ContestSummary[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -20,12 +22,17 @@ export default function ContestsDashboard() {
         try {
             const res = await getContests();
             setContests(res.data);
+        } catch (err: any) {
+            if (err.response?.status === 401) router.push('/login');
         } finally {
             setLoading(false);
         }
     };
 
-    useEffect(() => { fetchAll(); }, []);
+    useEffect(() => {
+        if (!localStorage.getItem('token')) { router.push('/login'); return; }
+        fetchAll();
+    }, []);
 
     const handleDelete = async (id: string) => {
         if (!confirm('Delete this contest?')) return;
@@ -41,13 +48,19 @@ export default function ContestsDashboard() {
                     <h1 className="text-2xl font-bold">CheatCode</h1>
                     <p className="text-sm text-white/40 mt-0.5">Contest Platform</p>
                 </div>
-                <Link
-                    href="/contests/create"
-                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-sm font-semibold transition-colors"
-                >
-                    <Plus className="w-4 h-4" />
-                    New Contest
-                </Link>
+                <div className="flex items-center gap-3">
+                    <Link href="/submissions" className="text-sm text-white/40 hover:text-white transition-colors">
+                        My Submissions
+                    </Link>
+                    <button onClick={() => { localStorage.clear(); window.location.href = '/login'; }}
+                        className="text-sm text-white/30 hover:text-white transition-colors">
+                        Logout
+                    </button>
+                    <Link href="/contests/create"
+                        className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-sm font-semibold transition-colors">
+                        <Plus className="w-4 h-4" /> New Contest
+                    </Link>
+                </div>
             </header>
 
             <div className="max-w-4xl mx-auto px-8 pt-10">
